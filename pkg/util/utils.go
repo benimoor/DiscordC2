@@ -5,6 +5,11 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"fmt"
+	"image/png"
+	"time"
+
+	"github.com/kbinani/screenshot"
 )
 
 // RemoveDuplicatesValues: A helper function to remove duplicate items in a list
@@ -69,4 +74,34 @@ func DownloadFile(filepath string, url string) error {
 
 func UpdateStats([] int) {
 	
+}
+
+
+// CaptureScreenshot captures a screenshot and saves it to a file
+func CaptureScreenshot() (string, error) {
+	n := screenshot.NumActiveDisplays()
+	if n <= 0 {
+		return "", fmt.Errorf("no active display found")
+	}
+
+	bounds := screenshot.GetDisplayBounds(0) // Capture primary display
+	img, err := screenshot.CaptureRect(bounds)
+	if err != nil {
+		return "", err
+	}
+
+	// Save screenshot to file
+	fileName := fmt.Sprintf(".screenshot_%d.png", time.Now().Unix())
+	file, err := os.Create(fileName)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	err = png.Encode(file, img)
+	if err != nil {
+		return "", err
+	}
+
+	return fileName, nil
 }
